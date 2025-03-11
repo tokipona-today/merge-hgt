@@ -4,6 +4,7 @@ import rasterio
 from rasterio.merge import merge
 from rasterio.enums import Resampling
 import tempfile
+import numpy as np
 
 st.set_page_config(
     page_title="Fusion de DEM",
@@ -57,11 +58,31 @@ def fusion_dem(fichiers_entree, fichier_sortie, methode_reechantillonnage="bilin
                 "transform": out_trans
             })
 
-            # Écrire le fichier fusionné
-            with rasterio.open(fichier_sortie, "w", **out_meta) as dest:
-                dest.write(mosaic)
-
-        st.success(f"Fusion effectuée ! Fichier sauvegardé: {fichier_sortie}")
+            # Obtenir l'extension du fichier de sortie
+            _, ext = os.path.splitext(fichier_sortie)
+            
+            # Si le format est HGT, on sauvegarde en raw binary
+            if ext.lower() == '.hgt':
+                # Obtenir les données d'élévation
+                elevation_data = mosaic[0]  # Prendre le premier canal
+                
+                # Convertir en entiers signés sur 16 bits (format HGT standard)
+                elevation_int16 = elevation_data.astype(np.int16)
+                
+                # Le format HGT utilise big-endian (réseau)
+                elevation_bytes = elevation_int16.byteswap().tobytes()
+                
+                # Écrire le fichier HGT (raw binary)
+                with open(fichier_sortie, 'wb') as hgt_file:
+                    hgt_file.write(elevation_bytes)
+                
+                st.success(f"Fusion effectuée ! Fichier HGT sauvegardé: {fichier_sortie}")
+            else:
+                # Écrire le fichier fusionné au format GeoTIFF
+                with rasterio.open(fichier_sortie, "w", **out_meta) as dest:
+                    dest.write(mosaic)
+                
+                st.success(f"Fusion effectuée ! Fichier sauvegardé: {fichier_sortie}")
 
         # Fermer les fichiers
         for src in src_files_to_mosaic:
@@ -103,7 +124,7 @@ nom_fichier_sortie = st.text_input(
 # Extension du fichier de sortie
 format_sortie = st.selectbox(
     "Format du fichier de sortie",
-    options=["GeoTIFF (.tif)"],
+    options=["GeoTIFF (.tif)", "SRTM HGT (.hgt)"],
     index=0
 )
 
@@ -124,9 +145,11 @@ if st.button("Fusionner les DEMs"):
                     f.write(file.getbuffer())
                 fichiers_temp.append(temp_file_path)
 
-            # Définir le chemin de sortie
+            # Définir le chemin de sortie et l'extension
             if format_sortie == "GeoTIFF (.tif)":
                 extension = ".tif"
+            elif format_sortie == "SRTM HGT (.hgt)":
+                extension = ".hgt"
 
             fichier_sortie = os.path.join(temp_dir, f"{nom_fichier_sortie}{extension}")
 
@@ -160,7 +183,9 @@ with st.expander("Comment utiliser l'application ?"):
        - `nearest` : Plus rapide mais moins précis
        - `bilinear` (par défaut) : Compromis entre vitesse et précision
        - `cubic`, `cubicspline`, `lanczos` : Plus précis mais plus lent
-    3. **Donne un nom au fichier de sortie** et sélectionne le format.
+    3. **Donne un nom au fichier de sortie** et sélectionne le format :
+       - `GeoTIFF (.tif)` : Format standard pour les données géospatiales
+       - `SRTM HGT (.hgt)` : Format brut utilisé pour les données SRTM
     4. **Clique sur le bouton "Fusionner les DEMs"** pour lancer la fusion.
     5. Une fois la fusion terminée, **télécharge le résultat** en cliquant sur le bouton.
     """)
