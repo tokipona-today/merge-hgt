@@ -1,3 +1,5 @@
 streamlit
 rasterio
 numpy
+plotly
+pillow
